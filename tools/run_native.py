@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 RdWing
+# Copyright (C) 2026 GoldJohnKing: experimental patched-MAIN pin.
 """Run original Z8 MAIN and EX on the optional native MCU bridge.
 
 No host MCU messages, firmware instruction patches or register redirection.
@@ -12,7 +13,7 @@ import hashlib
 import json
 import time
 import signal
-from runtime import arguments, verify
+from runtime import arguments, verify, experimental_sha256
 from full_guest import Guest
 from rom_inputs import attach
 from service_serial8 import WritePeer
@@ -31,6 +32,7 @@ p=arguments(__doc__)
 p.add_argument('--port',type=int,help='Loopback native-MCU display and optional qualified contacts')
 p.add_argument('--check-only',action='store_true')
 p.add_argument('--mcu',type=Path,required=True)
+p.add_argument('--experimental-main-sha256',help='Local experiment only: pinned sha256 of a locally built patched Z8 MAIN image accepted in place of the original firmware pin (e.g. a Fenestra patched image); the default stays pinned to the original MAIN')
 p.add_argument('--native-controls',action='store_true',help='Qualified EX Menu/navigation/half contacts; requires loopback view')
 p.add_argument('--contact-replay',type=Path,help='Ordered original-MCU external contact actions at virtual times')
 p.add_argument('--mcu-adc-inputs',help='Declared numeric ADC.CH=VALUE samples; no physical control names')
@@ -50,6 +52,7 @@ p.add_argument('--virtual-seconds',type=float,help='Optional finite virtual-time
 a=p.parse_args()
 try:
  trace_profile=trace_plugin.validate(a)
+ if a.experimental_main_sha256 is not None:experimental_sha256(a.experimental_main_sha256)
  if a.experimental_main_supply_pin is not None:validate_supply_pin(a.experimental_main_supply_pin)
  if a.mcu_adc_inputs is not None:native_adc.validate(a.mcu_adc_inputs)
  a.movie_audio_output=movie_playback.validate_audio_output(a.movie_audio_output)
@@ -73,16 +76,24 @@ if ',' in a.mcu_pins:p.error('Use colon-separated MCU contacts')
 if a.native_controls and (a.port is None or a.contact_replay):p.error('--native-controls requires --port and excludes contact replay')
 if ',' in str(a.output.resolve()):p.error('Output path cannot contain a comma for EX USART file backends')
 if a.port is not None and not (a.port==0 or 1024<=a.port<=65535):p.error('Invalid loopback port')
-firmware,_=verify(a.firmware);mcu=a.mcu.resolve()
+firmware,_=verify(a.firmware,a.experimental_main_sha256);mcu=a.mcu.resolve()
 if ',' in str(mcu) or mcu.stat().st_size!=524288 or hashlib.sha256(mcu.read_bytes()).hexdigest()!='8ce129fa3689d1d619f25ba1c44a3a9f1964c76fe77b95adeb4ea912463c8c63':
  p.error('Expected the original Z8 EX03.00 component')
 if not a.qemu.is_file() or not a.raw.is_file():p.error('QEMU and RAW paths must exist')
-if a.check_only:print('Original Z8 MAIN/EX and runtime paths verified.');raise SystemExit(0)
+if a.check_only:print('Original Z8 MAIN/EX and runtime paths verified.' if a.experimental_main_sha256 is None else 'Local patched MAIN pinned; original Z8 EX and runtime paths verified.');raise SystemExit(0)
 contacts=ContactReplay(a.contact_replay) if a.contact_replay else None
 if native_capture and a.native_controls:
  contacts=ContactReplay(native_he.setup_contacts(a))
 if a.native_controls:a.mcu_pins='G1=1:G13=1:G14=1:G15=1'+(':'+a.mcu_pins if a.mcu_pins else '')
+if a.experimental_main_sha256:
+ # Same pinned-image handoff the patched-image regression uses: the guest
+ # layer re-checks size plus this explicitly pinned sha instead of MAIN_SHA.
+ import full_guest
+ full_guest.MAIN_SHA=experimental_sha256(a.experimental_main_sha256)
 g=Guest(firmware,a.qemu,a.raw,a.output)
+if a.experimental_main_sha256:
+ g.data['experimental_main']=dict(sha256=full_guest.MAIN_SHA,
+  scope='local patched MAIN image accepted by explicit experiment option')
 trace_plugin.attach(g,trace_profile)
 index=g.command.index('-M')+1
 g.command[index]=g.command[index].replace('nikon-z8-lab,','nikon-z8-full-lab,zr-sd-empty-fixture=on,')+',mcu-image='+str(mcu)+',mcu-pins='+a.mcu_pins

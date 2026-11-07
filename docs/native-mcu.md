@@ -672,6 +672,20 @@ one supply cut/reset, one EX startup reset, zero bad frames and clean stop.
 This final-gate control makes no exposure and retains separate scope from the
 three audited desktop HE★ files.
 
+## An explicit experimental patched-MAIN pin
+
+`--experimental-main-sha256 DIGEST` on `tools/run_native.py` replaces the
+original-MAIN acceptance pin with exactly one locally built patched image
+digest, for example a patched build that keeps the original payload size. It
+is disabled by default; the default run stays pinned to the original Z8 MAIN
+size and digest. The digest is normalized to lower-case hex and malformed
+values are rejected before any firmware material is opened. The preflight
+checks the pinned digest together with the original payload size, and the
+guest layer re-checks both before boot. The run
+data records the pinned digest and its local-experiment scope. This is a
+declared local experiment handoff, not an acceptance change: qualification
+still runs on the original firmware.
+
 ## Movie recording and saved-file playback
 
 `tools/native-movie-recording-contacts.json` enters Movie, presses/releases its
