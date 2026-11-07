@@ -14,8 +14,22 @@ def arguments(description, capture=False):
     p.add_argument('--output', type=Path, required=True, help='Fresh run directory')
     return p
 
-def verify(firmware):
+def experimental_sha256(value):
+    """Validate an explicit pinned sha256 for a local patched-MAIN experiment."""
+    allowed = (value or '').strip().lower()
+    if len(allowed) != 64 or any(c not in '0123456789abcdef' for c in allowed):
+        raise ValueError('Expected a 64-hex-character experimental MAIN sha256')
+    return allowed
+
+def verify(firmware, allow_main_sha256=None):
     firmware = firmware.resolve()
+    if allow_main_sha256 is not None:
+        # Local-experiment path: accept exactly the pinned patched image
+        # (its size stays pinned to the original payload by the guest layer).
+        allowed = experimental_sha256(allow_main_sha256)
+        if hashlib.file_digest(firmware.open('rb'), 'sha256').hexdigest() != allowed:
+            raise ValueError('Firmware sha256 does not match the pinned experimental MAIN image')
+        return firmware, json.loads((ROOT/'source-manifest.json').read_text())
     if firmware.stat().st_size != 81807709 or hashlib.file_digest(firmware.open('rb'), 'sha256').hexdigest() != MAIN_SHA:
         raise ValueError('Expected original Z8 C3.11 MAIN payload (CRC trailer excluded)')
     return firmware, json.loads((ROOT/'source-manifest.json').read_text())
