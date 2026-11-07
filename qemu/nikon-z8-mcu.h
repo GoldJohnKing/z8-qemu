@@ -196,12 +196,14 @@ static void z8_mcu_schedule(NikonZ8State *s,unsigned ch)
 }
 static void z8_mcu_kick(void *opaque) { z8_mcu_schedule(((Z8McuBridge *)opaque)->owner,0); }
 static bool z8_mcu_apply_contacts(Z8McuBridge *m,const char *value,Error **errp);
+static void z8_mcu_card_detect_apply(NikonZ8State *s);
 static void z8_mcu_init(NikonZ8State *s,DeviceState *gic)
 {
     if (!s->mcu_image || !*s->mcu_image) {
         if (s->mcu_main_supply_pin) { error_report("mcu-main-supply-pin requires native MCU attachment");exit(1); }
         if (s->mcu_adc_inputs) { error_report("mcu-adc-inputs requires native MCU attachment");exit(1); }
         if (s->mcu_capture_sync_wires) { error_report("mcu-capture-sync-wires requires original EX attachment");exit(1); }
+        if (s->mcu_card_detect) { error_report("mcu-card-detect requires native MCU attachment");exit(1); }
         return;
     }
     if (MACHINE(s)->smp.max_cpus<5 || !s->serial_fixture || s->ccomp_gpio_model) {
@@ -240,6 +242,7 @@ static void z8_mcu_init(NikonZ8State *s,DeviceState *gic)
     z8_stm32_gpio_drive(&m->chip.gpio[3],13,true); /* explicit virtual battery idle */
     if (s->mcu_capture_sync_wires) { z8_stm32_gpio_drive(&m->chip.gpio[5],4,!!(s->syscon[0x100c/4]&0x1000)); }
     z8_stm32_pins(&m->chip,s->mcu_pins,&error_fatal);
+    if (s->mcu_card_detect) { z8_mcu_card_detect_apply(s); }
     z8_mcu_apply_contacts(m,s->mcu_contacts,&error_fatal);
 }
 static char *get_z8_main_supply(Object *obj,Error **errp)
@@ -389,6 +392,112 @@ static char *get_z8_mcu_switches(Object *obj,Error **errp)
     g_string_append(out,"]}");return g_string_free(out,false);
 }
 
+
+/* Six whitelisted card-detect candidate inputs on the original EX03.00.
+ * Dual evidence (static EX RE + e1-r5..r13 dynamic runs, stock MAIN/EX,
+ * re-verified in E2a): driving each pin through z8_stm32_gpio_drive()
+ * reaches the MAIN switch cache (0xa0320169c) with the next SPI4
+ * family-2/kind-1 switch report (124 B; report[] below indexes the
+ * report_hex of native-mcu-switch-state):
+ *   pin    idle IDR    assert      report bytes                    MAIN switch cache
+ *   PB11   1 pull-up   0 (low)     [113] 0x00->0x01                 byte[7] bit0
+ *   PC2    1 pull-up   0 (low)     [22]  0x00->0x01                 byte[7] bit5
+ *   PF6    1 pull-up   0 (low)     [106] 0x00->0x01                 byte[2] bit4
+ *   PG2    1 pull-up   0 (low)     [27]  0x00->0x01                 byte[2] bit5
+ *   PC5    0 floating  1 (high)    [4]   0x01->0x00                 byte[1] bit1 (door/cover class: MAIN ui_control delayed state machine)
+ *   PG14   0 floating  1 (high)    [111]+[112] 0x01->0x00 each     byte[3] bits2+3
+ * E2a: none of the six is the CFe/SD in-slot detect (that path is MAIN's
+ * 50 ms EXS MMIO slot poller at 0x4031b2d8); which candidate carries which
+ * slot/door meaning is unresolved, so mcu-card-detect stays a semantic
+ * alias over the generic mcu-pins drive, restricted to the dual-evidence
+ * set, with slot semantics left to later discrimination. The default pin
+ * is table-order convenience, not a qualification. */
+static const struct Z8CardDetectPin {
+    char name[5];
+    uint8_t port, pin;
+    bool idle, assert_level;
+} z8_card_detect_pins[] = {
+    { "PB11", 1, 11, true, false },
+    { "PC2",  2,  2, true, false },
+    { "PF6",  5,  6, true, false },
+    { "PG2",  6,  2, true, false },
+    { "PC5",  2,  5, false, true },
+    { "PG14", 6, 14, false, true },
+};
+
+static const struct Z8CardDetectPin *z8_card_detect_find(const char *spec)
+{
+    char port, tail; unsigned pin; const char *s = spec;
+    if (s && (*s == 'p' || *s == 'P')) { s++; }
+    if (!s || sscanf(s, "%c%u%c", &port, &pin, &tail) != 2 ||
+        (port = g_ascii_toupper(port)) < 'A' || port > 'K' || pin > 15) {
+        return NULL;
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE(z8_card_detect_pins); i++) {
+        if (z8_card_detect_pins[i].port == port - 'A' &&
+            z8_card_detect_pins[i].pin == pin) { return &z8_card_detect_pins[i]; }
+    }
+    return NULL;
+}
+
+static void z8_mcu_card_detect_apply(NikonZ8State *s)
+{
+    Z8McuBridge *m = s->native_mcu;
+    const struct Z8CardDetectPin *p = z8_card_detect_find(s->mcu_card_detect_pin);
+    if (m && p) {
+        z8_stm32_gpio_drive(&m->chip.gpio[p->port], p->pin,
+                            s->mcu_card_detect ? p->assert_level : p->idle);
+    }
+}
+
+static char *get_z8_mcu_card_detect_pin(Object *obj, Error **errp)
+{
+    return g_strdup(NIKON_Z8_LAB(obj)->mcu_card_detect_pin ?:
+                    z8_card_detect_pins[0].name);
+}
+
+static void set_z8_mcu_card_detect_pin(Object *obj, const char *value, Error **errp)
+{
+    NikonZ8State *s = NIKON_Z8_LAB(obj);
+    const struct Z8CardDetectPin *p = z8_card_detect_find(value);
+    if (!p) {
+        error_setg(errp, "mcu-card-detect-pin requires one of the dual-evidence "
+                         "card-detect candidates PB11, PC2, PF6, PG2, PC5, PG14");
+        return;
+    }
+    if (!s->native_mcu && (s->image_ram.ram || s->image_ram.rom_device)) {
+        error_setg(errp, "mcu-card-detect-pin requires native MCU attachment");
+        return;
+    }
+    if (s->native_mcu && s->mcu_card_detect) {
+        /* Re-point the asserted drive: release the previous candidate to
+         * its idle level so at most one is asserted at a time. */
+        const struct Z8CardDetectPin *prev = z8_card_detect_find(s->mcu_card_detect_pin);
+        if (prev && prev != p) {
+            z8_stm32_gpio_drive(&s->native_mcu->chip.gpio[prev->port],
+                                prev->pin, prev->idle);
+        }
+    }
+    g_free(s->mcu_card_detect_pin);
+    s->mcu_card_detect_pin = g_strdup(p->name);
+    z8_mcu_card_detect_apply(s);
+}
+
+static bool get_z8_mcu_card_detect(Object *obj, Error **errp)
+{
+    return NIKON_Z8_LAB(obj)->mcu_card_detect;
+}
+
+static void set_z8_mcu_card_detect(Object *obj, bool value, Error **errp)
+{
+    NikonZ8State *s = NIKON_Z8_LAB(obj);
+    if (!s->native_mcu && (s->image_ram.ram || s->image_ram.rom_device)) {
+        error_setg(errp, "mcu-card-detect requires native MCU attachment");
+        return;
+    }
+    s->mcu_card_detect = value;
+    z8_mcu_card_detect_apply(s);
+}
 
 static bool get_z8_mcu_capture_sync_wires(Object *obj, Error **errp)
 {
