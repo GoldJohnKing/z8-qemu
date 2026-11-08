@@ -9,8 +9,9 @@ import native_adc
 PATTERNS={'mcu-adc-inputs':r'[0-9]+\.[0-9]+=[0-9]+','mcu-pins':r'[A-K](?:[0-9]|1[0-5])=[01]',
           'mcu-contacts':r'(?:22|23)\.(?:[0-9]|1[0-9]|2[0-3])=[01]',
           'capture-gpio-input':r'[0-3]',
-          'mcu-card-detect':r'(?:true|false)',
-          'mcu-card-detect-pin':r'[Pp]?[A-K](?:[0-9]|1[0-5])'}
+          'mcu-switch-candidate':r'(?:true|false)',
+          'mcu-switch-candidate-pin':r'[Pp]?[A-K](?:[0-9]|1[0-5])'}
+SINGLE_VALUE={'capture-gpio-input','mcu-switch-candidate','mcu-switch-candidate-pin'}
 
 class ContactReplay:
     def __init__(self,path):
@@ -25,8 +26,8 @@ class ContactReplay:
             if type(at) not in (int,float) or not math.isfinite(at) or not previous<=at<=3600:
                 raise ValueError('Contact times must be finite, ordered and within 0..3600')
             if prop not in PATTERNS or not isinstance(value,str) or not 1<=len(value)<=1024 or not all(
-                re.fullmatch(PATTERNS[prop],item) for item in ([value] if prop=='capture-gpio-input' else value.split(':'))):
-                raise ValueError('Expected explicit MCU GPIO/expander/ADC or MAIN GPIO inputs')
+                re.fullmatch(PATTERNS[prop],item) for item in ([value] if prop in SINGLE_VALUE else value.split(':'))):
+                raise ValueError('Expected explicit MCU GPIO/expander/ADC or MAIN GPIO inputs; the switch-candidate properties are single-valued')
             if prop=='mcu-adc-inputs':native_adc.validate(value)
             previous=at
     def dispatch(self,qmp,virtual_seconds):
@@ -34,7 +35,7 @@ class ContactReplay:
         while self.next<len(self.actions) and self.actions[self.next]['at']<=virtual_seconds:
             row=self.actions[self.next]
             value=row['value']
-            if row['property']=='mcu-card-detect':value=(value=='true')
+            if row['property']=='mcu-switch-candidate':value=(value=='true')
             qmp.command('qom-set',path='/machine',property=row['property'],value=value)
             sent.append(dict(row,delivered_at=virtual_seconds));self.next+=1
         return sent

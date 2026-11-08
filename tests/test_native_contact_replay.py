@@ -12,7 +12,9 @@ class Contacts(unittest.TestCase):
     def test_ordering_and_external_only_bounds(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'contacts.json'
-            rows=[dict(at=1,property='mcu-pins',value='G1=1:G13=1'),dict(at=2,property='mcu-contacts',value='23.6=0'),dict(at=3,property='capture-gpio-input',value='3')]
+            rows=[dict(at=1,property='mcu-pins',value='G1=1:G13=1'),dict(at=2,property='mcu-contacts',value='23.6=0'),dict(at=3,property='capture-gpio-input',value='3'),
+                  dict(at=4,property='mcu-switch-candidate',value='true'),dict(at=5,property='mcu-switch-candidate',value='false'),
+                  dict(at=6,property='mcu-switch-candidate-pin',value='PC2')]
             path.write_text(json.dumps(rows));replay=ContactReplay(path)
             class QMP:
                 def __init__(self):self.sent=[]
@@ -21,8 +23,19 @@ class Contacts(unittest.TestCase):
             self.assertEqual(len(replay.dispatch(qmp,1)),1);self.assertEqual(len(replay.dispatch(qmp,1)),0)
             self.assertEqual(len(replay.dispatch(qmp,2)),1);self.assertEqual(qmp.sent[-1][1]['value'],'23.6=0')
             self.assertEqual(len(replay.dispatch(qmp,3)),1);self.assertEqual(qmp.sent[-1][1]['value'],'3')
+            self.assertEqual(len(replay.dispatch(qmp,4)),1);self.assertIs(qmp.sent[-1][1]['value'],True)
+            self.assertEqual(len(replay.dispatch(qmp,5)),1);self.assertIs(qmp.sent[-1][1]['value'],False)
+            self.assertEqual(len(replay.dispatch(qmp,6)),1);self.assertEqual(qmp.sent[-1][1]['value'],'PC2')
             for change in [dict(at=-.1),dict(at=float('nan')),dict(at=True),dict(property='cpu-pc'),
                            dict(value='G16=1'),dict(value='G1=1:'),dict(value='23.24=0'),dict(value='24.6=0'),
-                           dict(property='capture-gpio-input',value='1:3'),dict(property='capture-gpio-input',value='4')]:
+                           dict(property='capture-gpio-input',value='1:3'),dict(property='capture-gpio-input',value='4'),
+                           dict(property='mcu-switch-candidate',value='true:false'),
+                           dict(property='mcu-switch-candidate',value='false:true'),
+                           dict(property='mcu-switch-candidate',value='yes'),
+                           dict(property='mcu-switch-candidate',value='true '),
+                           dict(property='mcu-switch-candidate-pin',value='PB11:PC2'),
+                           dict(property='mcu-switch-candidate-pin',value='PB11:PC2:PG14'),
+                           dict(property='mcu-switch-candidate-pin',value='QB1'),
+                           dict(property='mcu-card-detect',value='true')]:
                 candidate=dict(rows[0],**change);path.write_text(json.dumps([candidate]))
                 with self.subTest(change=change),self.assertRaises(ValueError):ContactReplay(path)
