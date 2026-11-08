@@ -36,6 +36,7 @@ class Contacts(unittest.TestCase):
                            dict(property='mcu-switch-candidate-pin',value='PB11:PC2'),
                            dict(property='mcu-switch-candidate-pin',value='PB11:PC2:PG14'),
                            dict(property='mcu-switch-candidate-pin',value='QB1'),
-                           dict(property='mcu-card-detect',value='true')]:
+                           dict(property='mcu-card-detect',value='true'),
+                           dict(property='mcu-card-detect-pin',value='PB11')]:
                 candidate=dict(rows[0],**change);path.write_text(json.dumps([candidate]))
                 with self.subTest(change=change),self.assertRaises(ValueError):ContactReplay(path)

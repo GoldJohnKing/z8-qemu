@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* Copyright (C) 2026 RdWing */
-/* Copyright (C) 2026 GoldJohnKing: card-detect pin alias. */
+/* Copyright (C) 2026 GoldJohnKing: switch-candidate pin alias. */
 /* Original EX firmware owns messages. The board only connects GPIO, SPI
  * and DMA. Pin bindings here are Z8 C3.11/EX03.00 static/probe bindings;
  * clocks, battery and top-panel ready timing remain functional fixtures. */
