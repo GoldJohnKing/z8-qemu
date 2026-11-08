@@ -421,23 +421,34 @@ repeated removal/reinsertion, unchanged endpoint/backing-file/adapter ownership,
 neighbor isolation, read-only observation and rejection without the adapter.
 
 
-## Whitelisted card-detect pin alias
+## Whitelisted switch-candidate pin alias
 
-`mcu-card-detect` / `mcu-card-detect-pin` form a default-off semantic alias
-over the generic `mcu-pins` drive, restricted to six dual-evidence EX
-card-detect candidates: PB11 (default when the pin property is unset), PC2,
-PF6, PG2, PC5 and PG14. `mcu-card-detect=true` drives the selected pin to its
-measured assert level, `false` returns it to its idle level; switching the pin
-releases the previous candidate first. Both properties require native MCU
-attachment, and non-whitelisted pins are rejected.
+`mcu-switch-candidate` / `mcu-switch-candidate-pin` form a default-off
+semantic alias over the generic `mcu-pins` drive, restricted to six
+dual-evidence EX switch candidates: PB11 (default when the pin property
+is unset), PC2, PF6, PG2, PC5 and PG14.
+
+The alias borrows the selected pin only while
+`mcu-switch-candidate=true`: it drives the pin to its measured assert
+level. Turning it off, or switching pins while on, hands the pin back --
+the machine's `mcu-pins` spec level when that spec lists the pin,
+otherwise a true release to the pin's pull configuration (which for all
+six candidates equals the measured idle level). While the alias is off,
+selecting or switching the pin property changes no hardware state; a
+runtime `mcu-pins` set always re-takes the pins it lists (last writer
+wins). Both properties require native MCU attachment, and
+non-whitelisted pins are rejected.
 
 Measured on stock EX, driving each candidate reaches the MAIN switch cache
 with the next SPI4 switch report, but none of the six is the real CFe/SD
 in-slot detect: MAIN samples the EXS MMIO poller instead (see the External
-CFexpress detect input section). The alias is a whitelisted UI switch-cache
+CFexpress detect input section). The E1 card-detect hypothesis is the
+research history of these pins, not a claim of the property pair, which
+is why they are named switch-candidate: a whitelisted UI switch-cache
 drive with slot semantics left open, not a card-presence model. The
-thirty-five firmware-free checks in `tests/check_mcu_card_detect.py` cover
-the alias wiring on synthetic A53/M4 programs.
+forty-eight firmware-free checks in `tests/check_switch_candidate.py`
+cover the alias wiring and the generic-drive coexistence on synthetic
+A53/M4 programs.
 A disposable-card original MAIN/EX run toggles false/true at virtual 19/23 seconds, then completes review and returns to Photo: 300 harness checks, 633 RAW frames, 761 MAIN/698 EX frames, zero checksum failures and clean shutdown. The backend stays identical. No absent-period filesystem event was independently observed, so complete native hot-plug remains unqualified.
 
 

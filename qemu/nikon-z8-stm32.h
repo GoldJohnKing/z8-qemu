@@ -739,6 +739,26 @@ static void z8_stm32_gpio_drive(Z8Stm32Gpio *g, unsigned pin, bool level)
     }
 }
 
+/* Return a host-driven input to its pull configuration (pull-up reads 1,
+ * otherwise 0): the state the pin would show with no host drive at all.
+ * Mirrors drive(): EXTI only fires when the IDR-visible level actually
+ * changes, so releasing a pin driven at its pull level is event-free. */
+static void z8_stm32_gpio_release(Z8Stm32Gpio *g, unsigned pin)
+{
+    uint16_t before = z8_stm32_gpio_idr(g);
+    uint16_t after;
+
+    g->driven &= ~(1u << pin);
+    g->level &= ~(1u << pin);
+    after = z8_stm32_gpio_idr(g);
+    if (((before ^ after) >> pin) & 1 &&
+        ((g->mcu->syscfg[(0x08 + 4 * (pin / 4)) / 4] >> (4 * (pin % 4))) & 0xf)
+        == g->port) {
+        qemu_set_irq(qdev_get_gpio_in(DEVICE(&g->mcu->exti), pin),
+                     (after >> pin) & 1);
+    }
+}
+
 /* Press (active) or release one input of a button expander (addr 0x22 or
  * 0x23, bit 0..23); the MCU sees it at its next poll. */
 static bool z8_stm32_expander_set(Z8Stm32 *m, uint8_t addr, unsigned bit,

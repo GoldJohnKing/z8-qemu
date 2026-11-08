@@ -108,20 +108,26 @@ host scheduling to establish clock isolation. The twenty-two supply checks
 include two cycles and the default unconnected negative control. Neither suite
 qualifies physical pin-to-rail wiring or original-firmware operation by itself.
 
-The whitelisted card-detect pin alias has its own actual-board suite:
+The whitelisted switch-candidate pin alias has its own actual-board suite:
 
 ```sh
-python3 tests/check_mcu_card_detect.py --qemu /path/to/qemu-system-aarch64 \
-  --output .local/new-card-detect-check
+python3 tests/check_switch_candidate.py --qemu /path/to/qemu-system-aarch64 \
+  --output .local/new-switch-candidate-check
 ```
 
-The thirty-five checks configure the measured stock-EX pull pattern, then
-drive every whitelisted candidate through `mcu-card-detect` /
-`mcu-card-detect-pin` and read it back through the EX IDR: assert and idle
-levels for all six candidates, the default-pin path (detect on without an
-explicit pin), release on switch, spelling canonicalization, whitelist
-rejection, default-off and the native-MCU-attachment requirement. The suite establishes the alias wiring
-only; which candidate carries which slot or door meaning stays unresolved.
+The forty-eight checks configure the measured stock-EX pull pattern, then
+drive every whitelisted candidate through `mcu-switch-candidate` /
+`mcu-switch-candidate-pin` and read it back through the EX IDR: assert
+and release-to-pull for all six candidates, the default-pin path, hand-
+back on switch and deassert, spelling canonicalization, whitelist
+rejection, default-off and the native-MCU-attachment requirement. A
+second boot runs the same sequence against an existing generic
+`mcu-pins` drive (B11=0:C5=1): selecting and switching while the alias
+is off touch nothing, an un-listed candidate is released on deassert,
+and a listed one has its generic level restored instead of the alias
+idle level. The suite establishes the alias wiring and its ownership
+rule only; which candidate carries which switch meaning stays
+unresolved.
 
 
 `tests/check_lpcm.py --qemu /path/to/qemu-system-aarch64 --output .local/new-lpcm-check`
