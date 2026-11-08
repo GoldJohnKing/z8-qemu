@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 RdWing
+# Copyright (C) 2026 GoldJohnKing: native serial5 audio outlet.
 """Explicit functional saved-Movie video and stereo PCM output profile."""
 PROPERTIES = (
     'video-nr-reset-model', 'video-initial-reset-model', 'backend-program-epoch-model',
@@ -10,6 +11,10 @@ PROPERTIES = (
     'lpcm-host-conversion-model', 'lpcm-ram-aperture-fixture',
     'serial5-audio-config-model', 'serial5-audio-idle-drain-model',
     'serial5-tx-drain-model', 'serial5-playback-ram-aperture-fixture',
+)
+SERIAL5_AUDIO_PROPERTIES = (
+    'serial5-audio-config-model', 'serial5-audio-idle-drain-model',
+    'serial5-playback-ram-aperture-fixture',
 )
 
 def attach(guest, audio_output="auto"):
@@ -40,3 +45,31 @@ def validate_audio_output(value):
             or path.is_symlink() or not path.parent.is_dir()):
         raise ValueError('Choose a new WAV file in an existing directory without commas')
     return str(path)
+
+
+def attach_serial5_output(guest, audio_output):
+    """Audio-only serial5 host outlet for profiles that enable the TX model.
+
+    Shares the movie path's validation and sink format; the serial5 sink is
+    single, so callers must not combine it with the Movie playback outlet.
+    Machine properties already set by the chosen profile are not repeated:
+    -M keyval collapses duplicate keys to the last occurrence silently.
+    """
+    audio_output = validate_audio_output(audio_output)
+    if audio_output == 'none':
+        return 'none'
+    index = guest.command.index('-M') + 1
+    for name in SERIAL5_AUDIO_PROPERTIES + ('serial5-tx-drain-model',):
+        if name + '=' not in guest.command[index]:
+            guest.command[index] += ',' + name + '=on'
+    backend = 'auto' if audio_output == 'auto' else 'z8native'
+    guest.command[index] += ',serial5-audio-output=' + backend
+    if audio_output != 'auto':
+        guest.command += ['-audiodev', 'wav,id=z8native,path=' + audio_output +
+                          ',out.frequency=48000,out.channels=2,out.format=s16']
+    guest.data['serial5_audio_outlet'] = {
+        'audio_output': audio_output, 'properties': list(SERIAL5_AUDIO_PROPERTIES),
+        'audio_format': '48000 Hz stereo LE32', 'audio_tx_qualified': False,
+        'scope': 'native session evidence channel; single serial5 sink',
+    }
+    return audio_output

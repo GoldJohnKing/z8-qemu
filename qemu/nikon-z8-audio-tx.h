@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
  * Copyright (C) 2026 RdWing
+ * Copyright (C) 2026 GoldJohnKing: single-lane sink channel duplication.
  * Bounded channel-0 PCM output. Mapped 32-bit single descriptors and the
  * explicit paired stereo route retain separate ownership. Source reads and
  * optional host submission precede DMA status/IRQ; no physical DAC/rate claim.
+ * The declared host sink voice is stereo at the functional 48-kHz clock;
+ * single-lane streams duplicate each sample to both channels explicitly, so
+ * every guest sample reaches the sink once at the declared rate.
  */
 #define Z8_AUDIO_TX_BUDGET (16u * 1024u * 1024u)
 
@@ -55,6 +59,8 @@ static void serial5_host_audio_exit(Notifier *n,void *opaque)
 static bool serial5_host_audio_enqueue(NikonZ8State*s,const uint8_t*data,unsigned bytes)
 {
  if(!s->serial5_audio_output_id) { return true; }
+ bool paired=(s->serial5_config[0][0]&2)!=0;
+ s->serial5_audio_stream_channels=paired?2:1;
  if(!s->serial5_audio_voice) {
   Error*err=NULL;
   s->serial5_audio_backend=!strcmp(s->serial5_audio_output_id,"auto")?audio_get_default_audio_be(&err):audio_be_by_name(s->serial5_audio_output_id,&err);
@@ -64,6 +70,14 @@ static bool serial5_host_audio_enqueue(NikonZ8State*s,const uint8_t*data,unsigne
   if(!s->serial5_audio_voice) { return false; }
   s->serial5_host_pcm=g_byte_array_new();
   s->serial5_audio_exit.notify=serial5_host_audio_exit;qemu_add_exit_notifier(&s->serial5_audio_exit);s->serial5_audio_exit_registered=true;
+ }
+ g_autofree uint8_t *duplicated=NULL;
+ if(!paired) {
+  /* Descriptor lengths are word multiples (((r[0]&0xffff)+1)*4). */
+  duplicated=g_malloc((size_t)bytes*2);
+  const uint32_t *in=(const void *)data;uint32_t *out=(void *)duplicated;
+  for(unsigned words=bytes/4;words--;) { out[2*words]=in[words];out[2*words+1]=in[words]; }
+  data=duplicated;bytes*=2;
  }
  if(bytes>2*MiB-s->serial5_host_pcm->len) { return false; }
  g_byte_array_append(s->serial5_host_pcm,data,bytes);
@@ -189,7 +203,7 @@ static char *get_serial5_tx_drain_state(Object *obj, Error **errp)
         "\"jobs\":%"PRIu64",\"bytes\":%"PRIu64",\"last_source\":%"PRIu64","
         "\"sha256\":\"%s\",\"empty_reads\":%"PRIu64",\"fault\":\"%s\","
         "\"budget_bytes\":%u,\"prefill_delay_ns\":1000000,"
-        "\"pcm_rate_hz\":48000,\"host_output\":%s,"
+        "\"pcm_rate_hz\":48000,\"host_output\":%s,\"host_stream_channels\":%u,"
         "\"host_pcm_bytes\":%"PRIu64",\"host_queue_bytes\":%u,"
         "\"dac_output\":false,\"physical_timing_verified\":false}",
         s->serial5_tx_drain_model ? "true" : "false", channel,
@@ -197,6 +211,7 @@ static char *get_serial5_tx_drain_state(Object *obj, Error **errp)
         s->serial5_tx_drain_last_source, digest, s->serial5_tx_drain_empty_reads,
         s->serial5_tx_drain_fault ? s->serial5_tx_drain_fault : "",
         Z8_AUDIO_TX_BUDGET,s->serial5_audio_output_id?"true":"false",
+        s->serial5_audio_stream_channels,
         s->serial5_host_pcm_bytes,s->serial5_host_pcm?s->serial5_host_pcm->len:0);
 }
 

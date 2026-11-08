@@ -200,8 +200,10 @@ python3 tests/check_backend_program.py --qemu /path/to/qemu-system-aarch64 --out
 
 The 83 DMA assertions cover legacy and paired requests, actual source bytes,
 phase order, precise prefill/sample deadlines, cancellation, invalid descriptors
-and immutable boot mapping. The 11 host-output assertions check stereo 48-kHz
-WAV samples and file closure; `--backend auto` instead performs nine backend
+and immutable boot mapping. The 22 host-output assertions check the paired
+stereo route and single-lane mono duplication — every guest sample once per
+channel, tone frequency preserved — with stereo 48-kHz WAV samples and file
+closure; `--backend auto` instead performs seventeen backend
 admission/ownership checks on the current host. The 53 program assertions
 exercise eight reset/replacement epochs, retained opaque words, no invented
 pixels/completions and strict default-off overflow. Native repeated workflows

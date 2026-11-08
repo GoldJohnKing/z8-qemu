@@ -40,14 +40,38 @@ class Guest(Transport):
             input_clock='QEMU_CLOCK_VIRTUAL',cycle_accurate=False,
             firmware_timeouts_changed=False)
         self.proc=self.qmp=self.qt=self.fp=self.gdb=None;self.irq={}
-        self._log_offset=0;self._fault=False
+        self._log_offset=0;self._fault=False;self.exs_read_counts={}
+
+    def log_fault_window(self):
+        """Read one stderr window and report (text, fault) without latching.
+
+        Probes that keep the VM alive across the board's one-shot strict stop
+        need per-window fault detection: an already tolerated soak boundary
+        must not park every later window (the t13 sticky-stop defect was the
+        Python-side lifetime latch in log(), not the one-shot board stop).
+        Z8_EXS_READ diagnostic lines (exs-trace, default off) found in the
+        same window are tallied into exs_read_counts, keyed by the printed
+        address, so any log consumer advances the counter."""
+        with self.log_path.open('r',encoding='utf-8',errors='replace') as f:
+            f.seek(self._log_offset);text=f.read();self._log_offset=f.tell()
+        if text:
+            for line in text.splitlines():
+                if not line.startswith('Z8_EXS_READ '):
+                    continue
+                for part in line.split()[1:]:
+                    if part.startswith('addr='):
+                        address=part[5:]
+                        self.exs_read_counts[address]=self.exs_read_counts.get(address,0)+1
+                        break
+        return text,'Z8_UNKNOWN' in text
 
     def log(self):
         # Service loops only need to detect strict faults. Avoid rereading a
         # growing log hundreds of times a second on a Windows-mounted path.
-        with self.log_path.open('r',encoding='utf-8',errors='replace') as f:
-            f.seek(self._log_offset);text=f.read();self._log_offset=f.tell()
-        self._fault=self._fault or 'Z8_UNKNOWN' in text
+        # The lifetime latch is deliberate: boot/service callers treat any
+        # strict fault as terminal for the whole run.
+        _,fault=self.log_fault_window()
+        self._fault=self._fault or fault
         return 'Z8_UNKNOWN' if self._fault else ''
 
     def __exit__(self,kind,error,traceback):
