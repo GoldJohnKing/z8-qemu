@@ -132,6 +132,13 @@ def main():
                 def level(v):qmp.command('qom-set',path='/machine',property='mcu-pins',value='A2='+str(v))
                 advance(lambda:phase()==1 and heartbeat()[2]==1)
                 check('initial powered fixture boots without a forced reset '+str(enabled),heartbeat()[0]==0x4135334845415254 and io()['main_supply']['resets']==0)
+                if enabled:
+                    rejected=False
+                    try:qmp.command('qom-set',path='/machine',property='mcu-main-supply-pin',value='A3')
+                    except RuntimeError:rejected=True
+                    check('runtime supply-pin re-point is rejected after realization',rejected)
+                    check('rejected re-point leaves the selected supply pin unchanged',
+                          qmp.command('qom-get',path='/machine',property='mcu-main-supply-pin')=='C1')
                 level(1);advance(lambda:phase()==2)
                 check('neighbor output does not cut MAIN '+str(enabled),not io()['main_supply']['off'])
                 level(0);advance(lambda:phase()==3);run_for(100_000_000)

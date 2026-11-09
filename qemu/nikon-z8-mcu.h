@@ -257,6 +257,12 @@ static void set_z8_main_supply(Object *obj,const char *value,Error **errp)
         error_setg(errp, "mcu-main-supply-pin requires one declared pin A0..K15"); return;
     }
     NikonZ8State *s=NIKON_Z8_LAB(obj);
+    /* The supply connection is snapshotted at native-MCU init; a runtime
+     * re-point would silently leave the watcher on the old pin while the
+     * getter reported the new one, so reject it after realization. */
+    if (s->native_mcu || s->image_ram.ram || s->image_ram.rom_device) {
+        error_setg(errp,"mcu-main-supply-pin is immutable after realization");return;
+    }
     g_free(s->mcu_main_supply_pin); s->mcu_main_supply_pin=g_strdup(value);
 }
 static char *get_z8_mcu_image(Object *obj,Error **errp) { return g_strdup(NIKON_Z8_LAB(obj)->mcu_image); }

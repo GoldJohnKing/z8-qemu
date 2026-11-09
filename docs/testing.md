@@ -104,7 +104,7 @@ python3 tests/check_main_supply.py --qemu /path/to/qemu-system-aarch64 \
 ```
 
 The twelve STOP checks use guest-recorded timer/interrupt values rather than
-host scheduling to establish clock isolation. The twenty-two supply checks
+host scheduling to establish clock isolation. The twenty-four supply checks
 include two cycles and the default unconnected negative control. Neither suite
 qualifies physical pin-to-rail wiring or original-firmware operation by itself.
 

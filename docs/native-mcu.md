@@ -638,7 +638,10 @@ power/reset connection is separate from an interrupt.
 
 `--experimental-main-supply-pin C1` on `tools/run_native.py` selects an explicit
 virtual supply connection. It is disabled by default. The output must be in
-GPIO output mode. The initial fixture is powered; the first high arms it.
+GPIO output mode. The pin is fixed at machine creation: it is snapshotted
+when the native MCU attaches, and runtime re-points are rejected after
+realization instead of silently leaving the watcher on the old pin. The
+initial fixture is powered; the first high arms it.
 Subsequent low stops the A53s; return high resets GIC and boots CPU0 through
 its architectural reset vector. Stock MAIN starts its other cores. EX, virtual
 card and RAM remain retained. Repeated same-level writes do not issue resets.
@@ -646,7 +649,7 @@ The IO snapshot exposes selected-supply state and cut/reset counters read-only.
 This is a declared functional connection, not recovered physical Z8 wiring or
 a complete electrical power-domain/fastboot model.
 
-Twenty-two synthetic checks cover the default unconnected case, selected and
+Twenty-four synthetic checks cover the default unconnected case, selected and
 neighbor outputs, two cuts/resets, retained MAIN RAM, independent EX execution,
 idempotence and invalid pin rejection. An original MAIN/EX single-cycle run
 cuts at 21.146 and returns at 24.050 virtual seconds, then resumes Photo and
