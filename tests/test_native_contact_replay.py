@@ -14,7 +14,8 @@ class Contacts(unittest.TestCase):
             path=Path(temp)/'contacts.json'
             rows=[dict(at=1,property='mcu-pins',value='G1=1:G13=1'),dict(at=2,property='mcu-contacts',value='23.6=0'),dict(at=3,property='capture-gpio-input',value='3'),
                   dict(at=4,property='mcu-switch-candidate',value='true'),dict(at=5,property='mcu-switch-candidate',value='false'),
-                  dict(at=6,property='mcu-switch-candidate-pin',value='PC2')]
+                  dict(at=6,property='mcu-switch-candidate-pin',value='PC2'),
+                  dict(at=7,property='mcu-pins',value='B11=0'),dict(at=8,property='mcu-pins',value='C5=1')]
             path.write_text(json.dumps(rows));replay=ContactReplay(path)
             class QMP:
                 def __init__(self):self.sent=[]
@@ -26,6 +27,8 @@ class Contacts(unittest.TestCase):
             self.assertEqual(len(replay.dispatch(qmp,4)),1);self.assertIs(qmp.sent[-1][1]['value'],True)
             self.assertEqual(len(replay.dispatch(qmp,5)),1);self.assertIs(qmp.sent[-1][1]['value'],False)
             self.assertEqual(len(replay.dispatch(qmp,6)),1);self.assertEqual(qmp.sent[-1][1]['value'],'PC2')
+            self.assertEqual(len(replay.dispatch(qmp,7)),1);self.assertEqual(qmp.sent[-1][1]['value'],'B11=0')
+            self.assertEqual(len(replay.dispatch(qmp,8)),1);self.assertEqual(qmp.sent[-1][1]['value'],'C5=1')
             for change in [dict(at=-.1),dict(at=float('nan')),dict(at=True),dict(property='cpu-pc'),
                            dict(value='G16=1'),dict(value='G1=1:'),dict(value='23.24=0'),dict(value='24.6=0'),
                            dict(property='capture-gpio-input',value='1:3'),dict(property='capture-gpio-input',value='4'),

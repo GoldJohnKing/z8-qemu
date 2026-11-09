@@ -449,12 +449,14 @@ CFexpress detect input section). The E1 card-detect hypothesis is the
 research history of these pins, not a claim of the property pair, which
 is why they are named switch-candidate: a whitelisted UI switch-cache
 drive with slot semantics left open, not a card-presence model. The
-fifty-six firmware-free checks in `tests/check_switch_candidate.py`
+seventy-one firmware-free checks in `tests/check_switch_candidate.py`
 cover the alias wiring, the generic-drive coexistence on synthetic
 A53/M4 programs, and the incremental-update hand-back: two separate
-runtime `mcu-pins` sets accumulate, and a borrow cycle over them
-restores the accumulated drive rather than what the last spec string
-lists.
+runtime `mcu-pins` sets accumulate, a borrow cycle over them restores
+the accumulated drive rather than what the last spec string lists, a
+runtime set re-takes a borrowed pin whose drive the hand-back keeps, a
+rejected spec with a valid prefix hands back what applied, and a
+creation-time borrow deasserts back to its machine-time generic drive.
 A disposable-card original MAIN/EX run toggles false/true at virtual 19/23 seconds, then completes review and returns to Photo: 300 harness checks, 633 RAW frames, 761 MAIN/698 EX frames, zero checksum failures and clean shutdown. The backend stays identical. No absent-period filesystem event was independently observed, so complete native hot-plug remains unqualified.
 
 

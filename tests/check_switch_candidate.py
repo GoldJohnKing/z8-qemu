@@ -209,6 +209,56 @@ def main():
             gpio=io()
             check('a borrowed PC5 hands back to its accumulated high drive',
                   pin_state(gpio,'PC5')==(1,True))
+
+            # A runtime mcu-pins set re-takes the borrowed pin itself: the
+            # generic write wins immediately and the later hand-back must
+            # keep it (last writer wins), not revert to the older drive.
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate-pin',value='PB11')
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            gpio=io()
+            check('borrowing over the accumulated drives asserts PB11 low again',
+                  pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-pins',value='B11=1')
+            gpio=io()
+            check('a runtime mcu-pins set re-takes the borrowed pin',
+                  pin_state(gpio,'PB11')==(1,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('hand-back after the re-take keeps the newer generic drive',
+                  pin_state(gpio,'PB11')==(1,True) and pin_state(gpio,'PC5')==(1,True))
+
+            # Switching the selected pin while the alias is on hands the
+            # previous candidate back to its accumulated drive.
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            gpio=io()
+            check('re-borrowing PB11 asserts low over the re-taken drive',
+                  pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate-pin',value='PC5')
+            gpio=io()
+            check('switching while on hands PB11 back to its accumulated drive',
+                  pin_state(gpio,'PB11')==(1,True) and pin_state(gpio,'PC5')==(1,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('deasserting after the switch restores the PC5 drive',
+                  pin_state(gpio,'PC5')==(1,True))
+
+            # A malformed item rejects the spec, but the items before it
+            # already applied (one validate-and-apply pass); the retained
+            # string keeps the last accepted write. The hand-back must use
+            # what actually applied, not that string.
+            rejected=False
+            try:qmp.command('qom-set',path='/machine',property='mcu-pins',value='B11=0,NOTAPIN')
+            except RuntimeError:rejected=True
+            check('a malformed item rejects the whole spec',rejected)
+            gpio=io()
+            check('the valid prefix item still applied',pin_state(gpio,'PB11')==(0,True))
+            check('the rejected spec does not update the retained string',
+                  qmp.command('qom-get',path='/machine',property='mcu-pins')=='B11=1')
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('hand-back uses what applied, not the retained string',
+                  pin_state(gpio,'PB11')==(0,True))
             stop_child(proc,qmp);qmp=None;check('native boot reaped',proc.poll() is not None)
 
             # Second native boot: the alias against an existing generic drive.
@@ -265,6 +315,29 @@ def main():
             check('deasserting PC5 restores the generic high drive (not the alias idle 0)',
                   pin_state(gpio,'PC5')==(1,True))
             stop_child(proc,qmp);qmp=None;check('generic boot reaped',proc.poll() is not None)
+
+            # Third native boot: the alias asserted at machine creation over
+            # a machine-time generic drive.
+            machine=f'nikon-z8-lab,mcu-image={mcu},mcu-pins=B11=1,mcu-switch-candidate=on,bootstrap-fixtures=on,bus-window-fixture=on,serial-fixture=on,image-bank-model=on'
+            report['boots'].append(machine)
+            proc,qmp=boot(machine,'creation')
+            deadline=time.monotonic()+5
+            while True:
+                gpio=io()
+                if all(gpio[p]['pull']==v for p,v in PUPDR.items()) or time.monotonic()>deadline:break
+            check('creation boot applies the pull pattern too',all(gpio[p]['pull']==v for p,v in PUPDR.items()))
+            check('the creation-time borrow asserts over the generic drive',
+                  qmp.command('qom-get',path='/machine',property='mcu-switch-candidate') is True
+                  and pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('deasserting the creation-time borrow restores the generic drive',
+                  pin_state(gpio,'PB11')==(1,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            gpio=io()
+            check('re-asserting after the creation-time cycle borrows again',
+                  pin_state(gpio,'PB11')==(0,True))
+            stop_child(proc,qmp);qmp=None;check('creation boot reaped',proc.poll() is not None)
 
             machine='nikon-z8-lab,bootstrap-fixtures=on,bus-window-fixture=on,serial-fixture=on,image-bank-model=on'
             proc,qmp=boot(machine,'bare');report['boots'].append(machine)
