@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 RdWing
+# Copyright (C) 2026 GoldJohnKing: navigation sequence configuration.
 """Continuous offline controller/sensor input using reference device contracts."""
 import json,time
 from pathlib import Path
@@ -7,6 +8,7 @@ from service_z8_mcu import Peer
 from service_serial8 import WritePeer
 from z8_global1_boundary_input import Peer as BoundaryPeer
 from boot_z8 import key_body
+from nav_sequence import interval as nav_interval, sequence as nav_sequence
 P=Path(__file__).resolve().parent
 
 def run(g,seconds=60,control=None):
@@ -22,6 +24,7 @@ def run(g,seconds=60,control=None):
  shooting_mode="photo"
  def input_body(**kwargs):return key_body(shooting_mode=shooting_mode,**kwargs)
  explicit=False;deadline=time.monotonic()+seconds;next_capture=0;phase=0;phase_at=0;nav_index=0;nav_at=None;release_at=None;input_ready=0
+ sequence=nav_sequence();interval=nav_interval()  # validated here, before the run: bad tokens or a nonfinite/nonpositive interval must fail fast
  g.qmp.command('cont')
  try:
   while time.monotonic()<deadline and not (control and control.stop.is_set()):
@@ -45,12 +48,11 @@ def run(g,seconds=60,control=None):
      control.mark_sent()
      g.data.setdefault('interactive_inputs',[]).append(dict(kind=kind,value=value,shooting_mode=shooting_mode,virtual_seconds=vt))
    if not control and phase==6 and vt>=nav_at and release_at is None:
-    sequence=[('ok-bank',74),('back-bank',35),('down-one',37),('ok-extended',74),('back-extended',35),('half-shutter',7)]
     if nav_index<len(sequence):
      label,offset=sequence[nav_index];body=bytearray(input_body());body[offset]=1
      send_running(bytes(body));release_at=vt+.10
      g.data.setdefault('navigation_inputs',[]).append(dict(label=label,offset=offset,pressed=True,virtual_seconds=vt,before_frame=len(g.data.get('pipeline_samples',[]))))
-     print('Navigation input: '+label,flush=True);nav_index+=1;nav_at=vt+3
+     print('Navigation input: '+label,flush=True);nav_index+=1;nav_at=vt+interval
     else:phase=7
    if now>=next_capture:
     g.qmp.command('stop');peer.handle()

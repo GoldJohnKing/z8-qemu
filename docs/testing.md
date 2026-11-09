@@ -72,6 +72,27 @@ actual board. Diagnostic ZIP host tests cover exact binary log copies, fixed
 allowlist exclusion, limits, nonregular inputs, source changes, cancellation and
 no-replace publication. Native Save-dialog/completion checks remain separate.
 
+The syscon-semaphore fixture has its own firmware-free runtime check:
+
+```sh
+python3 tests/check_syscon_semaphore.py --qemu /path/to/qemu-system-aarch64 \
+  --output .local/new-semaphore-check
+```
+
+Its 17 checks copy load instructions into the low service RAM so one load sits
+exactly at the measured acquire pc 0x082013d4, then call it with controlled
+registers: with `syscon-semaphore-model` on, the acquire-pc load of 0x0d151404
+reads retained|1 and logs exactly one grant, while the same load at another pc,
+the neighbor word at the acquire pc and a byte-wide read at the acquire pc do
+not grant; with the property unset the acquire-pc load reads the retained word
+unchanged and no grant appears. With `syscon-semaphore-trace` on, the fixture
+enables the EL3 MMU with identity tables that leave two 4KiB translation holes,
+so one `Z8_VDUMP` covers both failure shapes -- the module window fails
+mid-dump after successful reads and the taskstack starts in a hole -- and no
+FAIL line carries payload bytes (the check rejects the build that reprinted
+stale chunk bytes under FAIL). These checks pin the grant's exact gate; they
+do not model semaphore semantics beyond the single acquired load.
+
 `tests/check_mcu_panel.py` executes synthetic PA1/EXTI1 and SPI2 transfers through
 the actual board. Its 13 checks distinguish Z8's 144×168 geometry from the
 reference model, including gates 1/168 and the eighteenth data byte, with
