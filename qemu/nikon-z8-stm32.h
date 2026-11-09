@@ -168,6 +168,14 @@ struct Z8Stm32 {
     bool flash_ignored_named;           /* the not-programming-mode write */
 
     Z8Stm32Gpio gpio[Z8_STM32_GPIO_PORTS];
+    /* Effective generic drive per pin, accumulated by z8_stm32_pins()
+     * only: runtime sets re-take the pins they list and never release
+     * unlisted ones, so the last spec string alone cannot recover the
+     * drive still in effect (that is what a borrow hands back to).
+     * Raw gpio_drive()/gpio_release() callers (fixture drives, the
+     * switch-candidate alias) deliberately do not touch this. */
+    uint16_t pins_driven[Z8_STM32_GPIO_PORTS];
+    uint16_t pins_level[Z8_STM32_GPIO_PORTS];
     STM32F2XXTimerState tim[4];         /* TIM2..TIM5, QEMU's model */
     STM32F2XXTimerState tim_more[10];   /* TIM1, 8, 9-14, 6, 7 */
     OrIRQState tim_or[2];               /* vectors 25 and 44 are shared */
@@ -798,6 +806,15 @@ static bool z8_stm32_pins(Z8Stm32 *m, const char *spec, Error **errp)
         }
         port = c - 'A';
         z8_stm32_gpio_drive(&m->gpio[port], pin, level);
+        /* Mirror the effective drive as items apply in order: repeated
+         * assignments to one pin in a spec leave the last value, like
+         * the drive above. */
+        m->pins_driven[port] |= 1u << pin;
+        if (level) {
+            m->pins_level[port] |= 1u << pin;
+        } else {
+            m->pins_level[port] &= ~(1u << pin);
+        }
         error_report("Z8_STM32: P%c%u driven %u", c, pin, level);
     }
     return true;

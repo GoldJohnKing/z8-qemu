@@ -420,12 +420,15 @@ static char *get_z8_mcu_switches(Object *obj,Error **errp)
  * true. While false, selecting or switching the pin property is pure
  * bookkeeping and touches no hardware. Turning the alias on drives the
  * candidate to its measured assert level; turning it off, or switching
- * pins while on, HANDS the previous candidate back: the machine's
- * mcu-pins spec level when that spec lists the pin, otherwise a true
- * release to the pull configuration (which for all six candidates equals
- * the measured idle level). A runtime mcu-pins set always re-takes the
- * pins it lists: last writer wins. An unset mcu-switch-candidate-pin
- * property means the table-order default PB11 (the same value the
+ * pins while on, HANDS the previous candidate back: the pin's accumulated
+ * generic mcu-pins drive when one is in effect (runtime mcu-pins sets
+ * re-take the pins they list and never release unlisted ones, so the
+ * effective drive is tracked per pin, not re-derived from the last spec
+ * string), otherwise a true release to the pull configuration (which for
+ * all six candidates equals the measured idle level). A runtime mcu-pins
+ * set always re-takes the pins it lists: last writer wins, and repeated
+ * assignments within one spec leave the last value. An unset
+ * mcu-switch-candidate-pin property means the table-order default PB11 (the same value the
  * getter reports, so the alias alone never no-ops); the default is
  * convenience, not a qualification. */
 static const struct Z8SwitchCandidatePin {
@@ -464,46 +467,38 @@ static const struct Z8SwitchCandidatePin *z8_switch_candidate_effective(NikonZ8S
                                z8_switch_candidate_pins[0].name);
 }
 
-/* The level the machine's mcu-pins spec drives for a candidate pin,
- * when the spec lists it. */
-static bool z8_mcu_pins_spec_level(NikonZ8State *s,
-                                   const struct Z8SwitchCandidatePin *p,
-                                   bool *level)
+/* The effective generic drive for a candidate pin: the accumulated
+ * mcu-pins state tracked per pin by z8_stm32_pins(). Runtime sets
+ * accumulate and the spec string only records the last write, so this
+ * cannot be recovered by scanning that string. */
+static bool z8_mcu_pins_effective_level(NikonZ8State *s,
+                                        const struct Z8SwitchCandidatePin *p,
+                                        bool *level)
 {
-    if (!s->mcu_pins) {
+    Z8Stm32 *chip = &s->native_mcu->chip;
+
+    if (!(chip->pins_driven[p->port] & (1u << p->pin))) {
         return false;
     }
-    g_auto(GStrv) items = g_strsplit_set(s->mcu_pins, ",:", -1);
-    for (char **it = items; *it; it++) {
-        unsigned pin, value;
-        char c;
-        if (!**it) {
-            continue;
-        }
-        if (sscanf(*it, "%c%u=%u", &c, &pin, &value) == 3 &&
-            (c = g_ascii_toupper(c)) >= 'A' && c <= 'K' && pin <= 15 &&
-            value <= 1 && c - 'A' == p->port && pin == p->pin) {
-            *level = !!value;
-            return true;
-        }
-    }
-    return false;
+    *level = !!(chip->pins_level[p->port] & (1u << p->pin));
+    return true;
 }
 
-/* Hand a candidate pin back to the generic drive: the mcu-pins spec
- * level when the spec lists the pin, otherwise a true release to the
- * pull state (which equals the measured idle level for every
- * candidate). Runtime mcu-pins sets re-take the pins they list; this
- * only restores what the alias displaced. */
+/* Hand a candidate pin back to the generic drive: the pin's accumulated
+ * mcu-pins drive when one is in effect, otherwise a true release to the
+ * pull state (which equals the measured idle level for every candidate).
+ * Runtime mcu-pins sets re-take the pins they list; this only restores
+ * what the alias displaced. */
 static void z8_mcu_switch_candidate_hand_back(NikonZ8State *s,
                                                const struct Z8SwitchCandidatePin *p)
 {
     Z8McuBridge *m = s->native_mcu;
     bool level;
+
     if (!m || !p) {
         return;
     }
-    if (z8_mcu_pins_spec_level(s, p, &level)) {
+    if (z8_mcu_pins_effective_level(s, p, &level)) {
         z8_stm32_gpio_drive(&m->chip.gpio[p->port], p->pin, level);
     } else {
         z8_stm32_gpio_release(&m->chip.gpio[p->port], p->pin);
@@ -567,8 +562,8 @@ static void set_z8_mcu_switch_candidate(Object *obj, bool value, Error **errp)
         return;
     }
     if (s->native_mcu && !value && s->mcu_switch_candidate && p) {
-        /* End of the borrow: restore the generic mcu-pins drive, or the
-         * pull state when the spec does not list the pin. */
+        /* End of the borrow: restore the pin's accumulated generic drive,
+         * or the pull state when none is in effect. */
         z8_mcu_switch_candidate_hand_back(s, p);
     }
     s->mcu_switch_candidate = value;

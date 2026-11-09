@@ -431,13 +431,16 @@ is unset), PC2, PF6, PG2, PC5 and PG14.
 The alias borrows the selected pin only while
 `mcu-switch-candidate=true`: it drives the pin to its measured assert
 level. Turning it off, or switching pins while on, hands the pin back --
-the machine's `mcu-pins` spec level when that spec lists the pin,
+the pin's accumulated generic `mcu-pins` drive when one is in effect,
 otherwise a true release to the pin's pull configuration (which for all
-six candidates equals the measured idle level). While the alias is off,
-selecting or switching the pin property changes no hardware state; a
-runtime `mcu-pins` set always re-takes the pins it lists (last writer
-wins). Both properties require native MCU attachment, and
-non-whitelisted pins are rejected.
+six candidates equals the measured idle level). Runtime `mcu-pins` sets
+re-take the pins they list and never release unlisted ones, so the
+effective drive is tracked per pin instead of being re-derived from the
+last spec string; repeated assignments to one pin within a spec leave
+the last value. While the alias is off,
+selecting or switching the pin property changes no hardware state (last
+writer wins on a runtime set). Both properties require native MCU
+attachment, and non-whitelisted pins are rejected.
 
 Measured on stock EX, driving each candidate reaches the MAIN switch cache
 with the next SPI4 switch report, but none of the six is the real CFe/SD
@@ -446,9 +449,12 @@ CFexpress detect input section). The E1 card-detect hypothesis is the
 research history of these pins, not a claim of the property pair, which
 is why they are named switch-candidate: a whitelisted UI switch-cache
 drive with slot semantics left open, not a card-presence model. The
-forty-eight firmware-free checks in `tests/check_switch_candidate.py`
-cover the alias wiring and the generic-drive coexistence on synthetic
-A53/M4 programs.
+fifty-six firmware-free checks in `tests/check_switch_candidate.py`
+cover the alias wiring, the generic-drive coexistence on synthetic
+A53/M4 programs, and the incremental-update hand-back: two separate
+runtime `mcu-pins` sets accumulate, and a borrow cycle over them
+restores the accumulated drive rather than what the last spec string
+lists.
 A disposable-card original MAIN/EX run toggles false/true at virtual 19/23 seconds, then completes review and returns to Photo: 300 harness checks, 633 RAW frames, 761 MAIN/698 EX frames, zero checksum failures and clean shutdown. The backend stays identical. No absent-period filesystem event was independently observed, so complete native hot-plug remains unqualified.
 
 

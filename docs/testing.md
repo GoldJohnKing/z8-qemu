@@ -115,7 +115,7 @@ python3 tests/check_switch_candidate.py --qemu /path/to/qemu-system-aarch64 \
   --output .local/new-switch-candidate-check
 ```
 
-The forty-eight checks configure the measured stock-EX pull pattern, then
+The fifty-six checks configure the measured stock-EX pull pattern, then
 drive every whitelisted candidate through `mcu-switch-candidate` /
 `mcu-switch-candidate-pin` and read it back through the EX IDR: assert
 and release-to-pull for all six candidates, the default-pin path, hand-
@@ -125,9 +125,14 @@ second boot runs the same sequence against an existing generic
 `mcu-pins` drive (B11=0:C5=1): selecting and switching while the alias
 is off touch nothing, an un-listed candidate is released on deassert,
 and a listed one has its generic level restored instead of the alias
-idle level. The suite establishes the alias wiring and its ownership
-rule only; which candidate carries which switch meaning stays
-unresolved.
+idle level. The first boot also walks the incremental-update review
+case: two separate runtime `mcu-pins` sets (B11=0, then C5=1) accumulate,
+and a borrow cycle over PB11 hands back to the accumulated low drive,
+not to the pull state the last spec string would suggest; repeated
+assignments within one spec (B11=1,B11=0) leave the last value in
+hardware and on hand-back. The suite establishes the alias wiring and
+its ownership rule only; which candidate carries which switch meaning
+stays unresolved.
 
 
 `tests/check_lpcm.py --qemu /path/to/qemu-system-aarch64 --output .local/new-lpcm-check`

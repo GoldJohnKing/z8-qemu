@@ -11,11 +11,17 @@ AArch64/Thumb targets.
 
 The alias borrows the selected pin only while mcu-switch-candidate is
 true: turning it off, or switching pins while on, hands the pin back --
-the mcu-pins spec level when that spec lists the pin, otherwise a true
-release to the pull state. While the alias is off, selecting a pin
-changes no hardware state. The second boot runs the same alias against
-an existing generic mcu-pins drive (PB11=0:PC5=1) and checks selecting,
-asserting, deasserting and switching coexist with it.
+the pin's accumulated generic mcu-pins drive when one is in effect
+(runtime mcu-pins sets re-take the pins they list and never release
+unlisted ones, so the effective drive is tracked per pin, not
+re-derived from the last spec string), otherwise a true release to the
+pull state. While the alias is off, selecting a pin changes no hardware
+state. The second boot runs the same alias against an existing generic
+mcu-pins drive (PB11=0:PC5=1) and checks selecting, asserting,
+deasserting and switching coexist with it; the first boot additionally
+walks the incremental-update review case (two separate runtime sets,
+then a borrow cycle) and repeated assignments within one spec, where
+the last value wins both in hardware and on hand-back.
 """
 import argparse
 import hashlib
@@ -163,6 +169,46 @@ def main():
                 except RuntimeError:rejected=True
                 check('non-whitelisted pin rejected: '+repr(value),rejected)
             check('rejections left the pin state unchanged',io()==before)
+
+            # Incremental generic updates: runtime mcu-pins sets accumulate
+            # per pin, so a hand-back must restore the accumulated drive,
+            # not what the last spec string happens to list (review case).
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate-pin',value='PB11')
+            gpio=io()
+            check('selecting PB11 while off leaves the state untouched',
+                  all(not pin_state(gpio,n)[1] for n in PINS))
+            qmp.command('qom-set',path='/machine',property='mcu-pins',value='B11=0')
+            gpio=io()
+            check('a first incremental mcu-pins set drives PB11 low',
+                  pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-pins',value='C5=1')
+            gpio=io()
+            check('a later incremental set keeps the earlier drive',
+                  pin_state(gpio,'PB11')==(0,True) and pin_state(gpio,'PC5')==(1,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            gpio=io()
+            check('borrowing PB11 over accumulated drives stays driven low',
+                  pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('hand-back retains the accumulated generic low drive',
+                  pin_state(gpio,'PB11')==(0,True) and pin_state(gpio,'PC5')==(1,True))
+            qmp.command('qom-set',path='/machine',property='mcu-pins',value='B11=1,B11=0')
+            gpio=io()
+            check('repeated assignments in one spec leave the last value',
+                  pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('hand-back after repeated assignments restores the last value',
+                  pin_state(gpio,'PB11')==(0,True))
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate-pin',value='PC5')
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=True)
+            qmp.command('qom-set',path='/machine',property='mcu-switch-candidate',value=False)
+            gpio=io()
+            check('a borrowed PC5 hands back to its accumulated high drive',
+                  pin_state(gpio,'PC5')==(1,True))
             stop_child(proc,qmp);qmp=None;check('native boot reaped',proc.poll() is not None)
 
             # Second native boot: the alias against an existing generic drive.
