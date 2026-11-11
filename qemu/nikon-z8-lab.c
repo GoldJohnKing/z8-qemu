@@ -1119,6 +1119,8 @@ struct NikonZ8State {
     bool serial_fixture;
     bool i2c_fixture;
     bool orientation_fixture;
+    bool orientation_input_set;
+    uint8_t orientation_input[6];
     bool zr_orientation_fixture;
     bool zr_orientation_input_set;
     uint8_t zr_orientation_input[6];
@@ -6152,6 +6154,50 @@ static char *get_zr_lcd_control_state(Object *obj, Error **errp)
  * only the ranges written by this firmware path. One stationary raw vector
  * (0,0,1024) is supplied; no sample clock, data-ready GPIO or self-test modeled.
  */
+/* External acceleration bytes for the ch3/address-1d diagnostic peer,
+ * mirroring zr-orientation-input. Default off: until explicitly set the
+ * stationary reset vector keeps feeding every sample read, byte for byte.
+ * Bytes are consumed only when a guest read starts, so changing pose
+ * cannot overwrite an in-flight FIFO or synthesize an IRQ.
+ */
+static const uint8_t *orientation_sample(NikonZ8State *s)
+{
+    static const uint8_t initial[] = { 0, 0, 0, 0, 0x40, 0 };
+    return s->orientation_input_set ? s->orientation_input : initial;
+}
+
+static char *get_orientation_input(Object *obj, Error **errp)
+{
+    const uint8_t *v = orientation_sample(NIKON_Z8_LAB(obj));
+    return g_strdup_printf("%02x%02x%02x%02x%02x%02x",
+                           v[0], v[1], v[2], v[3], v[4], v[5]);
+}
+
+static void set_orientation_input(Object *obj, const char *value, Error **errp)
+{
+    NikonZ8State *s = NIKON_Z8_LAB(obj);
+    uint8_t sample[6];
+    if (object_dynamic_cast(obj, MACHINE_TYPE_NAME("nikon-zr-lab"))) {
+        error_setg(errp, "orientation-input requires the Z8 lab machines");
+        return;
+    }
+    if (strlen(value) != 12) {
+        error_setg(errp, "orientation-input requires six hex bytes (BE16 XYZ)");
+        return;
+    }
+    for (unsigned i = 0; i < 6; i++) {
+        int hi = g_ascii_xdigit_value(value[i * 2]);
+        int lo = g_ascii_xdigit_value(value[i * 2 + 1]);
+        if (hi < 0 || lo < 0) {
+            error_setg(errp, "orientation-input requires six hex bytes (BE16 XYZ)");
+            return;
+        }
+        sample[i] = (hi << 4) | lo;
+    }
+    memcpy(s->orientation_input, sample, sizeof(sample));
+    s->orientation_input_set = true;
+}
+
 static bool orientation_config_byte(unsigned reg)
 {
     return reg == 0x0e || reg == 0x0f || reg == 0x11 || reg == 0x15 ||
@@ -6184,9 +6230,11 @@ static bool orientation_transfer(NikonZ8State *s, unsigned ch)
                 return false;
             }
         }
+        const uint8_t *sample = orientation_sample(s);
         for (unsigned i = 0; i < n; i++) {
             unsigned reg = start + i;
-            s->i2c_rx[ch][i] = reg ? s->orientation_regs[reg] :
+            s->i2c_rx[ch][i] = reg ? (reg <= 6 ? sample[reg - 1]
+                                              : s->orientation_regs[reg]) :
                                       ((s->orientation_regs[0x2a] & 1) ? 8 : 0);
         }
         s->i2c_rx_count[ch] = n;
@@ -23243,13 +23291,15 @@ static void set_orientation_fixture(Object *obj, bool value, Error **errp)
 static char *get_orientation_state(Object *obj, Error **errp)
 {
     NikonZ8State *s = NIKON_Z8_LAB(obj);
+    const uint8_t *v = orientation_sample(s);
     return g_strdup_printf("{\"fixture\":%s,\"monitors\":%u,\"writes\":%u,"
                            "\"reads\":%u,\"pointer\":%u,\"control_2a\":%u,"
-                           "\"sample_hex\":\"000000004000\"}",
+                           "\"sample_hex\":\"%02x%02x%02x%02x%02x%02x\"}",
                            s->orientation_fixture ? "true" : "false",
                            s->orientation_monitors, s->orientation_writes,
                            s->orientation_reads, s->orientation_pointer,
-                           s->orientation_regs[0x2a]);
+                           s->orientation_regs[0x2a],
+                           v[0], v[1], v[2], v[3], v[4], v[5]);
 }
 
 static bool get_zr_secondary_resample_model(Object *obj, Error **errp)
@@ -23702,6 +23752,7 @@ static void nikon_z8_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_bool(oc, "i2c-fixture", get_i2c_fixture, set_i2c_fixture);
     object_class_property_add_bool(oc, "orientation-fixture", get_orientation_fixture, set_orientation_fixture);
     object_class_property_add_str(oc, "orientation-state", get_orientation_state, NULL);
+    object_class_property_add_str(oc, "orientation-input", get_orientation_input, set_orientation_input);
     object_class_property_add_bool(oc, "zr-orientation-fixture", get_zr_orientation_fixture, set_zr_orientation_fixture);
     object_class_property_add_str(oc, "zr-orientation-state", get_zr_orientation_state, NULL);
     object_class_property_add_str(oc, "zr-orientation-input", get_zr_orientation_input, set_zr_orientation_input);
